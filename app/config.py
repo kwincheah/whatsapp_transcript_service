@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     summary_model: str = "deepseek-v4-flash"
     summary_min_seconds: float = 8.0
     summary_max_tokens: int = 400  # headroom for reasoning; the prompt keeps output short
+    # DeepSeek V4+ reasons by default; off = faster, and a one-line summary doesn't need it.
+    summary_thinking: bool = False
 
     @property
     def allowed_sender_set(self) -> set[str]:

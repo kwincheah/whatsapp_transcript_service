@@ -68,3 +68,28 @@ async def test_summary_failure_keeps_transcript(monkeypatch, mode):
     out = pipeline.format_reply(r)
     assert "hello there this is a test" in out
     assert "💡 *Summary*\n(unavailable)" in out
+
+
+async def test_summarise_disables_thinking_by_default(monkeypatch):
+    from app.ai import AI
+    from app.config import Settings
+
+    s = Settings(
+        whatsapp_token="t", whatsapp_phone_number_id="1", whatsapp_verify_token="v",
+        openai_api_key="o", deepseek_api_key="d", _env_file=None,
+    )
+    ai = AI(s)
+    seen = {}
+
+    class Resp:
+        model = "deepseek-flash"
+        choices = [type("C", (), {"finish_reason": "stop", "message": type("M", (), {"content": " Sum. "})()})()]
+
+    async def fake_create(**kw):
+        seen.update(kw)
+        return Resp()
+
+    monkeypatch.setattr(ai.deepseek.chat.completions, "create", fake_create)
+    out = await ai.summarise("some transcript")
+    assert out.text == "Sum."
+    assert seen["extra_body"] == {"thinking": {"type": "disabled"}}

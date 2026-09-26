@@ -47,6 +47,7 @@ class AI:
             ],
             max_tokens=self.s.summary_max_tokens,
             temperature=0.2,
+            extra_body={"thinking": {"type": "enabled" if self.s.summary_thinking else "disabled"}},
         )
         choice = resp.choices[0]
         text = (choice.message.content or "").strip()

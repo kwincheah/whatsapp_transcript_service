@@ -92,6 +92,7 @@ To run it locally instead: `cp .env.example .env`, fill it in, run `pip install 
 | `ignoring message from non-allowed sender N` | Put exactly `N` into `ALLOWED_SENDERS`. `16315551181` is Meta's dashboard "Test" sender, not you |
 | `Graph API 401 ...` | Token expired or truncated, or `WHATSAPP_PHONE_NUMBER_ID` wrong or truncated |
 | `Graph API 400 ... 131030` | Your number isn't on the API Setup **To** list |
+| `empty summary ... finish_reason=length` | The model ran out of tokens while reasoning. Keep `SUMMARY_THINKING=false`, or raise `SUMMARY_MAX_TOKENS` |
 | OpenAI / DeepSeek errors | Check the API key or credit; if the model isn't found, try `SUMMARY_MODEL=deepseek-flash` |
 
 WhatsApp only lets the bot send free-form replies within 24 h of your last message to it. Forwarding a voice note opens that window.
@@ -104,6 +105,7 @@ WhatsApp only lets the bot send free-form replies within 24 h of your last messa
 | `SUMMARY_MODEL` | `deepseek-v4-flash` | DeepSeek chat model |
 | `SUMMARY_MIN_SECONDS` | `8` | Summarise only when the audio is longer than this |
 | `SUMMARY_MAX_TOKENS` | `400` | Token budget for the summary call (includes any model reasoning; the prompt keeps the summary to one line) |
+| `SUMMARY_THINKING` | `false` | DeepSeek reasoning mode. It's on by default in DeepSeek's API; off is faster and avoids empty summaries |
 | `ALLOWED_SENDERS` | *(anyone)* | Comma-separated numbers allowed to use the bot |
 
 ## Dev
