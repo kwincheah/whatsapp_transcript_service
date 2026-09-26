@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="340" viewBox="0 0 1280 340" role="img" aria-label="WhatsApp Voice and Document Assistant">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#062925"/>
+      <stop offset="0.55" stop-color="#075E54"/>
+      <stop offset="1" stop-color="#0E7C6B"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#25D366"/>
+      <stop offset="1" stop-color="#7CF0B0"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.85" cy="0.2" r="0.6">
+      <stop offset="0" stop-color="#25D366" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#25D366" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.2" fill="#FFFFFF" fill-opacity="0.06"/>
+    </pattern>
+  </defs>
+
+  <rect width="1280" height="340" rx="24" fill="url(#bg)"/>
+  <rect width="1280" height="340" rx="24" fill="url(#dots)"/>
+  <rect width="1280" height="340" rx="24" fill="url(#glow)"/>
+
+  <!-- Logo: chat bubble with waveform -->
+  <g transform="translate(92 92)">
+    <path d="M78 0C35 0 0 31 0 70c0 16 6 31 16 43L8 152l42-15c9 3 18 4 28 4 43 0 78-31 78-71S121 0 78 0z" fill="url(#accent)"/>
+    <g fill="#063B34">
+      <rect x="34" y="58" width="9" height="24" rx="4.5"/>
+      <rect x="51" y="44" width="9" height="52" rx="4.5"/>
+      <rect x="68" y="32" width="9" height="76" rx="4.5"/>
+      <rect x="85" y="48" width="9" height="44" rx="4.5"/>
+      <rect x="102" y="38" width="9" height="64" rx="4.5"/>
+      <rect x="119" y="56" width="9" height="28" rx="4.5"/>
+    </g>
+  </g>
+
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+    <text x="290" y="138" fill="#FFFFFF" font-size="48" font-weight="700" letter-spacing="-0.5">WhatsApp Voice &amp; Document Assistant</text>
+    <text x="292" y="184" fill="#CFEFE6" font-size="24" font-weight="400">Forward a voice note, video, PDF or question. Get the answer back in seconds.</text>
+
+    <!-- Capability pills -->
+    <g font-size="17" font-weight="600" fill="#E9FFF6">
+      <g transform="translate(292 218)">
+        <rect width="132" height="38" rx="19" fill="#FFFFFF" fill-opacity="0.10" stroke="#7CF0B0" stroke-opacity="0.45"/>
+        <text x="66" y="25" text-anchor="middle">Transcribe</text>
+      </g>
+      <g transform="translate(436 218)">
+        <rect width="128" height="38" rx="19" fill="#FFFFFF" fill-opacity="0.10" stroke="#7CF0B0" stroke-opacity="0.45"/>
+        <text x="64" y="25" text-anchor="middle">Summarise</text>
+      </g>
+      <g transform="translate(576 218)">
+        <rect width="120" height="38" rx="19" fill="#FFFFFF" fill-opacity="0.10" stroke="#7CF0B0" stroke-opacity="0.45"/>
+        <text x="60" y="25" text-anchor="middle">Translate</text>
+      </g>
+      <g transform="translate(708 218)">
+        <rect width="150" height="38" rx="19" fill="#FFFFFF" fill-opacity="0.10" stroke="#7CF0B0" stroke-opacity="0.45"/>
+        <text x="75" y="25" text-anchor="middle">PDF &amp; OCR</text>
+      </g>
+      <g transform="translate(870 218)">
+        <rect width="136" height="38" rx="19" fill="#FFFFFF" fill-opacity="0.10" stroke="#7CF0B0" stroke-opacity="0.45"/>
+        <text x="68" y="25" text-anchor="middle">Web search</text>
+      </g>
+    </g>
+
+    <text x="292" y="292" fill="#9FD8C8" font-size="16">gpt-4o-mini-transcribe  ·  DeepSeek Flash  ·  gpt-5.6-luna  ·  FastAPI  ·  WhatsApp Cloud API</text>
+  </g>
+</svg>
