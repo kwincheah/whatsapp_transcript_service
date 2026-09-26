@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     deepseek_base_url: str = "https://api.deepseek.com"
     summary_model: str = "deepseek-v4-flash"
     summary_min_seconds: float = 8.0
-    summary_max_tokens: int = 80
+    summary_max_tokens: int = 400  # headroom for reasoning; the prompt keeps output short
 
     @property
     def allowed_sender_set(self) -> set[str]:

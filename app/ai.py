@@ -1,9 +1,12 @@
+import logging
 import time
 from dataclasses import dataclass
 
 from openai import AsyncOpenAI
 
 from app.config import Settings
+
+log = logging.getLogger("transcriber")
 
 SUMMARY_PROMPT = (
     "Summarise this voice message transcript in one short sentence (max ~20 words), "
@@ -45,5 +48,9 @@ class AI:
             max_tokens=self.s.summary_max_tokens,
             temperature=0.2,
         )
-        text = (resp.choices[0].message.content or "").strip()
+        choice = resp.choices[0]
+        text = (choice.message.content or "").strip()
+        if not text:
+            # Reasoning models can spend the whole token budget thinking and return no content.
+            log.warning("empty summary from %s (finish_reason=%s)", resp.model, choice.finish_reason)
         return Timed(text, self.s.summary_model, time.perf_counter() - t0)

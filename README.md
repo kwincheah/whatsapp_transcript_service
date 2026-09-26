@@ -6,17 +6,21 @@ Forward a WhatsApp voice note to the bot. It replies with:
 - a one-line summary if the audio is longer than 8 s (**deepseek-v4-flash**)
 - the latency and model used for each step
 
-Example reply:
+Example reply (audio over 8 s):
 
 ```
+📝 *Transcript*
 Hey, just wanted to let you know the meeting moved to 3pm tomorrow, and can you bring the Q3 deck...
 
-*Summary:* Meeting moved to 3pm tomorrow; bring Q3 deck.
+💡 *Summary*
+Meeting moved to 3pm tomorrow; bring Q3 deck.
 
-_STT gpt-4o-mini-transcribe 1.42s | Sum deepseek-v4-flash 0.61s | total 2.31s | audio 14s_
+_⏱ STT gpt-4o-mini-transcribe 1.42s · Summary deepseek-v4-flash 0.61s · Total 2.31s · Audio 14s_
 ```
 
-`total` is end to end: download from WhatsApp, then transcription, then the summary.
+For audio of 8 s or less, the Summary section and its timing are left out. If the summary call fails, the transcript is still sent, with `(unavailable)` in the Summary section.
+
+`Total` is end to end: download from WhatsApp, then transcription, then the summary.
 
 ## How it works
 
@@ -99,7 +103,7 @@ WhatsApp only lets the bot send free-form replies within 24 h of your last messa
 | `STT_MODEL` | `gpt-4o-mini-transcribe` | OpenAI transcription model |
 | `SUMMARY_MODEL` | `deepseek-v4-flash` | DeepSeek chat model |
 | `SUMMARY_MIN_SECONDS` | `8` | Summarise only when the audio is longer than this |
-| `SUMMARY_MAX_TOKENS` | `80` | Hard cap on summary length |
+| `SUMMARY_MAX_TOKENS` | `400` | Token budget for the summary call (includes any model reasoning; the prompt keeps the summary to one line) |
 | `ALLOWED_SENDERS` | *(anyone)* | Comma-separated numbers allowed to use the bot |
 
 ## Dev

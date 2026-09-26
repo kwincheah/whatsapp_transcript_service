@@ -1,8 +1,11 @@
+import logging
 import time
 from dataclasses import dataclass
 
 from app.ai import AI, Timed
 from app.audio import duration_seconds
+
+log = logging.getLogger("transcriber")
 
 MIME_EXT = {"audio/ogg": "ogg", "audio/mpeg": "mp3", "audio/mp4": "m4a", "audio/aac": "aac", "audio/amr": "amr"}
 
@@ -10,7 +13,8 @@ MIME_EXT = {"audio/ogg": "ogg", "audio/mpeg": "mp3", "audio/mp4": "m4a", "audio/
 @dataclass
 class Result:
     transcript: Timed
-    summary: Timed | None
+    summary: Timed | None  # None when the audio is short enough to skip summarising
+    summary_failed: bool
     audio_seconds: float | None
     total_seconds: float
 
@@ -25,23 +29,31 @@ async def process(
     dur = duration_seconds(audio)
 
     transcript = await ai.transcribe(audio, filename, base_mime)
-    summary = None
+    summary, failed = None, False
     # If duration is unknown, fall back to a rough length heuristic (~2.5 words/sec).
     long_enough = dur > min_seconds if dur is not None else len(transcript.text.split()) > min_seconds * 2.5
     if transcript.text and long_enough:
-        summary = await ai.summarise(transcript.text)
-    return Result(transcript, summary, dur, time.perf_counter() - t0)
+        try:
+            summary = await ai.summarise(transcript.text)
+            failed = not summary.text
+        except Exception:
+            # Never lose the transcript because the summary step failed.
+            log.exception("summary failed")
+            failed = True
+    return Result(transcript, summary, failed, dur, time.perf_counter() - t0)
 
 
 def format_reply(r: Result) -> str:
-    lines = [r.transcript.text or "(no speech detected)"]
+    lines = ["📝 *Transcript*", r.transcript.text or "(no speech detected)"]
     if r.summary and r.summary.text:
-        lines += ["", f"*Summary:* {r.summary.text}"]
+        lines += ["", "💡 *Summary*", r.summary.text]
+    elif r.summary_failed:
+        lines += ["", "💡 *Summary*", "(unavailable)"]
     meta = [f"STT {r.transcript.model} {r.transcript.seconds:.2f}s"]
     if r.summary:
-        meta.append(f"Sum {r.summary.model} {r.summary.seconds:.2f}s")
-    meta.append(f"total {r.total_seconds:.2f}s")
+        meta.append(f"Summary {r.summary.model} {r.summary.seconds:.2f}s")
+    meta.append(f"Total {r.total_seconds:.2f}s")
     if r.audio_seconds is not None:
-        meta.append(f"audio {r.audio_seconds:.0f}s")
-    lines += ["", "_" + " | ".join(meta) + "_"]
+        meta.append(f"Audio {r.audio_seconds:.0f}s")
+    lines += ["", "_⏱ " + " · ".join(meta) + "_"]
     return "\n".join(lines)

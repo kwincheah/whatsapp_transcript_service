@@ -29,11 +29,11 @@ async def test_summary_only_when_longer_than_threshold(monkeypatch, dur, expect_
     r = await pipeline.process(ai, b"x", "audio/ogg; codecs=opus", 8.0)
     assert ai.summarised is expect_summary
     out = pipeline.format_reply(r)
-    assert out.startswith("hello there this is a test")
+    assert out.startswith("📝 *Transcript*\nhello there this is a test")
     assert "gpt-4o-mini-transcribe 0.50s" in out
     assert ("deepseek-v4-flash 0.30s" in out) is expect_summary
-    assert ("*Summary:* Short summary." in out) is expect_summary
-    assert f"audio {dur:.0f}s" in out
+    assert ("💡 *Summary*\nShort summary." in out) is expect_summary
+    assert f"Audio {dur:.0f}s" in out
 
 
 async def test_unknown_duration_falls_back_to_word_count(monkeypatch):
@@ -52,3 +52,19 @@ def test_signature():
     assert valid_signature("secret", body, sig)
     assert not valid_signature("secret", body, "sha256=deadbeef")
     assert not valid_signature("secret", body, None)
+
+
+@pytest.mark.parametrize("mode", ["raise", "empty"])
+async def test_summary_failure_keeps_transcript(monkeypatch, mode):
+    monkeypatch.setattr(pipeline, "duration_seconds", lambda _: 20.0)
+
+    class BrokenAI(FakeAI):
+        async def summarise(self, transcript):
+            if mode == "raise":
+                raise RuntimeError("deepseek down")
+            return Timed("", "deepseek-v4-flash", 0.3)
+
+    r = await pipeline.process(BrokenAI(), b"x", "audio/ogg", 8.0)
+    out = pipeline.format_reply(r)
+    assert "hello there this is a test" in out
+    assert "💡 *Summary*\n(unavailable)" in out

@@ -110,11 +110,11 @@ async def handle_message(app: FastAPI, msg: dict, phone_number_id: str | None = 
         result = await process(ai, audio, mime, settings.summary_min_seconds, started_at=started)
         reply = format_reply(result)
         log.info(
-            "done stt=%.2fs sum=%s total=%.2fs audio=%s",
+            "done audio=%s stt=%.2fs summary=%s total=%.2fs",
+            f"{result.audio_seconds:.1f}s" if result.audio_seconds is not None else "unknown",
             result.transcript.seconds,
-            f"{result.summary.seconds:.2f}s" if result.summary else "-",
+            "failed" if result.summary_failed else f"{result.summary.seconds:.2f}s" if result.summary else "skipped",
             result.total_seconds,
-            result.audio_seconds,
         )
     except Exception:
         log.exception("failed to process %s", msg_id)
