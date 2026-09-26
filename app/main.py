@@ -7,12 +7,23 @@ import httpx
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request, Response
 
 from app.ai import AI
-from app.config import get_settings
-from app.pipeline import format_reply, process
-from app.whatsapp import WhatsApp, valid_signature
+from app.commands import handle_command
+from app.config import MB, get_settings
+from app.documents import kind_of
+from app.pipeline import Ctx, handle_audio, handle_document
+from app.store import Store
+from app.whatsapp import MediaTooLarge, WhatsApp, valid_signature
 
 log = logging.getLogger("transcriber")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+HINT = "Send or forward me a voice note, audio/video file, or a PDF, Word or text file. Send /help for more."
+UNSUPPORTED = {
+    "image": "📷 Images aren't supported yet. Send a PDF, Word or text file, or a voice note.",
+    "sticker": HINT,
+    "location": HINT,
+    "contacts": HINT,
+}
 
 # Meta retries webhooks it thinks failed; remember recent message ids to avoid double replies.
 _seen: OrderedDict[str, None] = OrderedDict()
@@ -39,10 +50,18 @@ async def lifespan(app: FastAPI):
         len(settings.whatsapp_app_secret),
         sorted(settings.allowed_sender_set) or "anyone",
     )
-    async with httpx.AsyncClient(timeout=60) as client:
+    store = None
+    if settings.db_path:
+        try:
+            store = Store(settings.db_path)
+            log.info("history: %s", settings.db_path)
+        except Exception:
+            log.exception("history disabled: can't open %s", settings.db_path)
+    async with httpx.AsyncClient(timeout=120) as client:
         app.state.settings = settings
         app.state.wa = WhatsApp(settings, client)
         app.state.ai = AI(settings)
+        app.state.store = store
         yield
 
 
@@ -88,38 +107,75 @@ async def receive(request: Request, background: BackgroundTasks):
 
 
 async def handle_message(app: FastAPI, msg: dict, phone_number_id: str | None = None) -> None:
-    settings, wa, ai = app.state.settings, app.state.wa, app.state.ai
-    sender, msg_id = msg.get("from", ""), msg.get("id")
+    settings, wa, ai, store = app.state.settings, app.state.wa, app.state.ai, app.state.store
+    sender, msg_id, mtype = msg.get("from", ""), msg.get("id", ""), msg.get("type")
     allowed = settings.allowed_sender_set
     if allowed and sender not in allowed:
         log.info("ignoring message from non-allowed sender %s", sender)
         return
 
-    if msg.get("type") != "audio":
-        try:
-            await wa.send_text(
-                sender, "Forward me a voice message and I'll transcribe it.", msg_id, phone_number_id
-            )
-        except Exception:
-            log.error("failed to send hint reply for %s", msg_id)
+    async def send(text: str) -> None:
+        await wa.send_text(sender, text, msg_id, phone_number_id)
+
+    try:
+        await _dispatch(app, msg, sender, msg_id, mtype, send)
+    except MediaTooLarge as e:
+        await _safe_send(send, f"That file is too large ({e.size // MB} MB). The limit is {e.limit // MB} MB.")
+    except Exception:
+        log.exception("failed to process %s (%s)", msg_id, mtype)
+        await _safe_send(send, "Sorry, something went wrong processing that. Please try again.")
+
+
+async def _safe_send(send, text: str) -> None:
+    try:
+        await send(text)
+    except Exception:
+        log.error("failed to send reply")
+
+
+async def _dispatch(app: FastAPI, msg: dict, sender: str, msg_id: str, mtype: str | None, send) -> None:
+    settings, wa, ai, store = app.state.settings, app.state.wa, app.state.ai, app.state.store
+
+    if mtype == "text":
+        body = msg.get("text", {}).get("body", "").strip()
+        await send(handle_command(body, sender, settings, store) if body.startswith("/") else HINT)
+        return
+    if mtype in UNSUPPORTED or mtype not in ("audio", "video", "document"):
+        await send(UNSUPPORTED.get(mtype, HINT))
         return
 
     started = time.perf_counter()
-    try:
-        audio, mime = await wa.download_media(msg["audio"]["id"])
-        result = await process(ai, audio, mime, settings.summary_min_seconds, started_at=started)
-        reply = format_reply(result)
-        log.info(
-            "done audio=%s stt=%.2fs summary=%s total=%.2fs",
-            f"{result.audio_seconds:.1f}s" if result.audio_seconds is not None else "unknown",
-            result.transcript.seconds,
-            "failed" if result.summary_failed else f"{result.summary.seconds:.2f}s" if result.summary else "skipped",
-            result.total_seconds,
-        )
-    except Exception:
-        log.exception("failed to process %s", msg_id)
-        reply = "Sorry, I couldn't transcribe that voice message."
-    try:
-        await wa.send_text(sender, reply, msg_id, phone_number_id)
-    except Exception:
-        log.error("failed to send reply for %s", msg_id)
+    lang, user_vocab = store.prefs(sender) if store else (None, [])
+    ctx = Ctx(
+        settings=settings,
+        ai=ai,
+        store=store,
+        sender=sender,
+        wamid=msg_id,
+        send=send,
+        started=started,
+        # None = no personal choice (use the default); "" = explicitly off.
+        lang=(settings.translate_to if lang is None else lang) or None,
+        vocab=settings.stt_vocab_list + user_vocab,
+    )
+    media = msg[mtype]
+
+    if mtype in ("audio", "video"):
+        data, mime = await wa.download_media(media["id"], settings.stt_max_bytes)
+        kind = "voice" if media.get("voice") else mtype
+        await handle_audio(ctx, data, media.get("mime_type") or mime, kind)
+        return
+
+    # Documents: audio/video files are transcribed; text documents are analysed.
+    filename = media.get("filename") or "document"
+    mime = (media.get("mime_type") or "").split(";")[0].strip()
+    caption = (media.get("caption") or "").strip() or None
+    if mime.startswith(("audio/", "video/")):
+        data, dl_mime = await wa.download_media(media["id"], settings.stt_max_bytes)
+        await handle_audio(ctx, data, mime or dl_mime, "audio_file", filename=filename)
+        return
+    if kind_of(mime, filename) is None:
+        await send(f"📄 I can't read *{filename}* yet. I support PDF, Word (.docx) and text files (txt, md, csv, json…).")
+        return
+    data, mime2 = await wa.download_media(media["id"], settings.doc_max_bytes)
+    await handle_document(ctx, data, mime or mime2, filename, caption)
