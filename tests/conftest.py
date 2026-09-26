@@ -39,6 +39,13 @@ class FakeAI:
             translation="Translated text." if translate_to else None,
         )
 
+    async def ocr_pages(self, images):
+        self.ocr_calls = getattr(self, "ocr_calls", []) + [len(images)]
+        texts = [None if i in self.ocr_fail_pages else f"OCR text of scanned page {i}" for i in range(len(images))]
+        return texts, Timed("", "gpt-5.6-luna", 2.0, 0.003)
+
+    ocr_fail_pages: tuple = ()
+
     async def analyse_document(self, text, filename, lang, question, truncated):
         self.doc_calls.append(dict(text=text, filename=filename, lang=lang, question=question, truncated=truncated))
         return self.doc or Analysis(

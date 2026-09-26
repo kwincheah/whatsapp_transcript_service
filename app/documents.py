@@ -11,11 +11,28 @@ class DocumentError(Exception):
     """User-facing reason a document couldn't be read."""
 
 
+# A PDF page with less text than this is treated as scanned (an image of text).
+SCANNED_PAGE_CHARS = 25
+
+
 @dataclass
 class Extracted:
     text: str
     kind: str  # "PDF", "Word", "Text"
     pages: int | None = None
+    page_texts: list[str] | None = None  # PDF only: text of each page that was read
+
+    @property
+    def scanned_pages(self) -> list[int]:
+        """0-based indices of PDF pages with (almost) no extractable text."""
+        if not self.page_texts:
+            return []
+        return [i for i, t in enumerate(self.page_texts) if len(t.strip()) < SCANNED_PAGE_CHARS]
+
+    def with_ocr(self, ocr: dict[int, str]) -> "Extracted":
+        """Merge OCR text into the page order."""
+        pages = [ocr.get(i, t) for i, t in enumerate(self.page_texts or [])]
+        return Extracted("\n\n".join(pages), self.kind, self.pages, pages)
 
 
 def kind_of(mime: str, filename: str) -> str | None:
@@ -59,7 +76,7 @@ def _pdf(data: bytes, max_chars: int) -> Extracted:
             total += len(t)
             if total > max_chars * 1.1:
                 break
-        return Extracted("\n\n".join(parts), "PDF", len(reader.pages))
+        return Extracted("\n\n".join(parts), "PDF", len(reader.pages), parts)
     except DocumentError:
         raise
     except (PdfReadError, ValueError, KeyError) as e:
@@ -78,3 +95,24 @@ def _docx(data: bytes) -> Extracted:
         for row in table.rows:
             parts.append(" | ".join(c.text.strip() for c in row.cells))
     return Extracted("\n".join(parts), "Word")
+
+
+def render_pages(data: bytes, indices: list[int], max_side: int = 1600) -> list[bytes]:
+    """Render PDF pages to JPEG for OCR. max_side keeps small print legible without huge images."""
+    import pypdfium2 as pdfium
+
+    pdf = pdfium.PdfDocument(data)
+    try:
+        out = []
+        for i in indices:
+            page = pdf[i]
+            w, h = page.get_size()  # points (1/72 inch)
+            scale = min(max_side / max(w, h), 300 / 72)  # cap at 300 dpi
+            image = page.render(scale=scale).to_pil().convert("RGB")
+            buf = io.BytesIO()
+            image.save(buf, format="JPEG", quality=85)
+            out.append(buf.getvalue())
+            page.close()
+        return out
+    finally:
+        pdf.close()

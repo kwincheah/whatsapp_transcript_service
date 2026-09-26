@@ -5,10 +5,10 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-from app.ai import AI, Analysis, estimate_tokens
+from app.ai import AI, Analysis, Timed, estimate_tokens
 from app.audio import duration_seconds
 from app.config import Settings
-from app.documents import DocumentError, extract_text
+from app.documents import DocumentError, extract_text, render_pages
 from app.store import Store
 
 log = logging.getLogger("transcriber")
@@ -160,12 +160,37 @@ async def handle_document(ctx: Ctx, data: bytes, mime: str, filename: str, quest
         return
     extract_secs = time.perf_counter() - t0
 
+    # Scanned pages (images of text) go through OCR; pages with real text are left as they are.
+    ocr: Timed | None = None
+    ocr_note = None
+    scanned = ext.scanned_pages if s.ocr_enabled else []
+    if scanned:
+        todo = scanned[: s.ocr_max_pages]
+        await ctx.send(f"🔍 *{filename}* has scanned pages. Reading {len(todo)} with OCR…")
+        try:
+            images = await asyncio.to_thread(render_pages, data, todo, s.ocr_image_max_side)
+            texts, ocr = await ctx.ai.ocr_pages(images)
+        except Exception:
+            log.exception("OCR rendering failed")
+            texts = [None] * len(todo)
+        got = {i: t for i, t in zip(todo, texts) if t}
+        ext = ext.with_ocr(got)
+        ocr_note = f"🔍 OCR: {len(got)} of {len(scanned)} scanned page{'s' if len(scanned) != 1 else ''}"
+        if len(scanned) > len(todo):
+            ocr_note += f" (limit {s.ocr_max_pages})"
+        failed = sum(t is None for t in texts)
+        if failed:
+            ocr_note += f", {failed} failed"
+    ocr_cost = ocr.cost if ocr else 0.0
+
     text = ext.text.strip()
     if not text:
-        await ctx.send(
-            f"📄 I couldn't find any text in *{filename}*. "
-            "If it's a scanned PDF (photos of pages), it needs OCR, which isn't supported yet."
+        hint = (
+            "I couldn't read any text from it, even with OCR." if scanned
+            else "If it's a scanned PDF, OCR is turned off on this bot (OCR_ENABLED)."
+            if ext.kind == "PDF" and not s.ocr_enabled else "It looks empty."
         )
+        await ctx.send(f"📄 I couldn't find any text in *{filename}*. {hint}")
         return
     truncated = len(text) > s.doc_max_input_chars
     used = text[: s.doc_max_input_chars]
@@ -178,11 +203,13 @@ async def handle_document(ctx: Ctx, data: bytes, mime: str, filename: str, quest
     if not a.ok:
         await ctx.send(f"📄 Sorry, I couldn't analyse *{filename}*. Please try again.")
         _record(ctx, kind="document", title=filename, audio_seconds=None, content=used, summary=None,
-                latency=time.perf_counter() - ctx.started, cost=a.cost)
+                latency=time.perf_counter() - ctx.started, cost=a.cost + ocr_cost)
         return
 
     info = [ext.kind] + ([pages] if pages else [])
     lines = [f"📄 *{a.title or filename}*", f"{filename} · {' · '.join(info)}"]
+    if ocr_note:
+        lines.append(ocr_note)
     if truncated:
         pct = max(1, round(100 * len(used) / len(text)))
         lines.append(f"⚠️ Long document: analysed the first ~{pct}%.")
@@ -195,16 +222,19 @@ async def handle_document(ctx: Ctx, data: bytes, mime: str, filename: str, quest
         blocks.append("📌 *Key points*\n" + "\n".join(f"• {p}" for p in a.key_points))
 
     total = time.perf_counter() - ctx.started
-    meta = [
-        f"Extract {extract_secs:.2f}s",
+    cost = a.cost + ocr_cost
+    meta = [f"Extract {extract_secs:.2f}s"]
+    if ocr:
+        meta.append(f"OCR {ocr.model} {ocr.seconds:.2f}s")
+    meta += [
         f"Analysis {a.model} {a.seconds:.2f}s",
         f"Total {total:.2f}s",
         f"{fmt_tokens(a.input_tokens)} tokens in",
-        fmt_cost(a.cost),
+        fmt_cost(cost),
     ]
     blocks.append(meta_line(meta))
     await ctx.send("\n\n".join(blocks))
-    log.info("done kind=document chars=%d truncated=%s total=%.2fs cost=%s", len(used), truncated, total,
-             fmt_cost(a.cost))
+    log.info("done kind=document chars=%d ocr_pages=%d truncated=%s total=%.2fs cost=%s", len(used), len(scanned),
+             truncated, total, fmt_cost(cost))
     _record(ctx, kind="document", title=filename, audio_seconds=None, content=used, summary=a.summary,
-            latency=total, cost=a.cost)
+            latency=total, cost=cost)

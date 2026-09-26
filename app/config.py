@@ -47,6 +47,14 @@ class Settings(BaseSettings):
     doc_max_bytes: int = 20 * MB
     doc_max_input_chars: int = 150_000  # ~40k tokens sent to the model; longer docs are truncated
 
+    # OCR for scanned PDF pages (OpenAI vision model, same OPENAI_API_KEY)
+    ocr_enabled: bool = True
+    ocr_model: str = "gpt-5.6-luna"
+    ocr_max_pages: int = 20  # scanned pages OCR'd per document
+    ocr_concurrency: int = 5  # pages processed in parallel
+    ocr_max_tokens_per_page: int = 2000  # a dense A4 page is ~800-1500 tokens of text
+    ocr_image_max_side: int = 1600  # px; larger = better for tiny print, more input tokens
+
     # History / stats (SQLite). On Railway, mount a volume at /app/data to keep it across deploys.
     db_path: str = "data/bot.db"
 
@@ -55,6 +63,8 @@ class Settings(BaseSettings):
     price_llm_input_per_m: float = 0.30
     price_llm_cached_input_per_m: float = 0.006
     price_llm_output_per_m: float = 1.20
+    price_ocr_input_per_m: float = 0.20
+    price_ocr_output_per_m: float = 1.20
 
     @property
     def allowed_sender_set(self) -> set[str]:

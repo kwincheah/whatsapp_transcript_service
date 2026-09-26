@@ -1,3 +1,5 @@
+import asyncio
+import base64
 import json
 import logging
 import re
@@ -31,6 +33,13 @@ class Analysis:
     answer: str | None = None
     title: str | None = None
     ok: bool = True
+
+
+OCR_PROMPT = (
+    "Transcribe all text on this page exactly as written, in natural reading order, in its original language. "
+    "Render tables as rows with ' | ' between cells. Include handwriting if legible. "
+    "Output only the page text, with no commentary. If there is no text, output nothing."
+)
 
 
 def estimate_tokens(text: str) -> int:
@@ -83,6 +92,41 @@ class AI:
         text = resp if isinstance(resp, str) else resp.text
         cost = (duration or 0) / 60 * self.s.price_stt_per_min
         return Timed(text.strip(), self.s.stt_model, time.perf_counter() - t0, cost)
+
+    async def ocr_pages(self, images: list[bytes]) -> tuple[list[str | None], Timed]:
+        """OCR page images in parallel. Returns per-page text (None if that page failed) and timing/cost."""
+        t0 = time.perf_counter()
+        sem = asyncio.Semaphore(max(1, self.s.ocr_concurrency))
+        cost = 0.0
+
+        async def one(img: bytes) -> str | None:
+            nonlocal cost
+            async with sem:
+                try:
+                    resp = await self.openai.chat.completions.create(
+                        model=self.s.ocr_model,
+                        messages=[{"role": "user", "content": [
+                            {"type": "text", "text": OCR_PROMPT},
+                            {"type": "image_url", "image_url": {
+                                "url": "data:image/jpeg;base64," + base64.b64encode(img).decode(),
+                                "detail": "high",
+                            }},
+                        ]}],
+                        max_completion_tokens=self.s.ocr_max_tokens_per_page,
+                        reasoning_effort="none",
+                    )
+                except Exception:
+                    log.exception("OCR failed for a page")
+                    return None
+                u = resp.usage
+                cost += (
+                    (getattr(u, "prompt_tokens", 0) or 0) * self.s.price_ocr_input_per_m
+                    + (getattr(u, "completion_tokens", 0) or 0) * self.s.price_ocr_output_per_m
+                ) / 1_000_000
+                return (resp.choices[0].message.content or "").strip()
+
+        texts = await asyncio.gather(*(one(img) for img in images))
+        return list(texts), Timed("", self.s.ocr_model, time.perf_counter() - t0, cost)
 
     async def _json_chat(self, system: str, user: str, max_tokens: int) -> tuple[dict | None, Analysis]:
         t0 = time.perf_counter()

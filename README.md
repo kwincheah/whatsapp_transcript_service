@@ -9,6 +9,7 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
 ![WhatsApp Cloud API](https://img.shields.io/badge/WhatsApp-Cloud%20API-25D366?logo=whatsapp&logoColor=white)
 ![OpenAI](https://img.shields.io/badge/STT-gpt--4o--mini--transcribe-412991?logo=openai&logoColor=white)
+![OCR](https://img.shields.io/badge/OCR-gpt--5.6--luna-412991?logo=openai&logoColor=white)
 ![DeepSeek](https://img.shields.io/badge/Analysis-DeepSeek%20Flash-4D6BFE)
 ![SQLite](https://img.shields.io/badge/history-SQLite%20FTS5-003B57?logo=sqlite&logoColor=white)
 ![Railway](https://img.shields.io/badge/deploy-Railway-0B0D0E?logo=railway&logoColor=white)
@@ -45,6 +46,7 @@
 | 💡 **Summaries by length** | Audio **> 8 s** gets a one-line summary. Audio **> 60 s** also gets 3–5 **key points**, with action items and dates first |
 | 🌐 **Translation** | `/lang English` (any language) adds a full translation when a note is in another language, and document summaries are written in that language |
 | 📄 **Document analysis** | **PDF, Word (.docx) and text files** (txt, md, csv, json…) get a title, summary and key points. **Add a caption to ask a question** about the file |
+| 🔍 **OCR for scanned PDFs** | Pages without a text layer (scans, phone photos saved as PDF, handwriting) are read by a vision model. Mixed PDFs only OCR the pages that need it |
 | 🔤 **Custom vocabulary** | `/vocab add Kwin, Petronas` helps the transcriber spell names and jargon correctly |
 | ⏱️ **Latency, model & cost** | Every reply shows each step's model and time, the end-to-end total, and the **estimated cost** |
 | 🔎 **History** | `/search` past transcripts and documents; `/stats` shows usage, average latency and spend |
@@ -123,6 +125,28 @@ The report covers Q3 performance: revenue up 10%, margins stable, and a cost-red
 ⏱ Extract 0.21s · Analysis deepseek-v4-flash 3.10s · Total 3.62s · 9.4k tokens in · $0.0034
 ```
 
+### 🔍 Scanned PDF (e.g. a signed contract photographed page by page)
+
+```text
+🔍 contract_signed.pdf has scanned pages. Reading 6 with OCR…
+```
+```text
+📄 Tenancy Agreement, Unit 12-3
+contract_signed.pdf · PDF · 6 pages
+🔍 OCR: 6 of 6 scanned pages
+
+💡 Summary
+Two-year tenancy from 1 Nov 2026 at RM 2,300/month, with a two-month deposit.
+
+📌 Key points
+• Rent RM 2,300, due on the 7th of each month
+• Deposit RM 4,600 + utilities RM 500
+• 2-month notice for early termination
+• Signed 20 Sep 2026
+
+⏱ Extract 0.08s · OCR gpt-5.6-luna 4.80s · Analysis deepseek-v4-flash 2.30s · Total 7.61s · 5.1k tokens in · $0.0093
+```
+
 > [!NOTE]
 > - **Total** is end to end: download, extraction or transcription, then analysis. Costs are **estimates** from token usage and your configured prices.
 > - Replies **quote** your original message, so it's clear which reply belongs to which file.
@@ -137,9 +161,10 @@ The report covers Q3 performance: revenue up 10%, margins stable, and a cost-red
 | 🎬 Video | The audio track is transcribed the same way |
 | 🎵 Audio file (as a document) | mp3, m4a, wav, ogg, flac, webm |
 | 📄 PDF | Text is extracted and analysed; a caption becomes a question |
+| 🔍 Scanned PDF | Pages without text are OCR'd (up to `OCR_MAX_PAGES`), then analysed |
 | 📝 Word `.docx` | Paragraphs and tables are extracted and analysed |
 | 🗒️ Text files | txt, md, csv, tsv, json, xml, yaml, html, srt, vtt |
-| 📷 Image, scanned PDF, zip… | A polite "not supported yet" message ([roadmap](#-roadmap)) |
+| 📷 Image, zip… | A polite "not supported yet" message ([roadmap](#-roadmap)) |
 
 ---
 
@@ -185,7 +210,13 @@ sequenceDiagram
             Svc->>WA: ② 💡 Summary · 📌 Key points · 🌐 Translation
         end
     else document
-        Svc->>Svc: Extract text (PDF / DOCX / text), truncate to limit
+        Svc->>Svc: Extract text (PDF / DOCX / text)
+        opt PDF pages without text
+            Svc->>WA: 🔍 Reading N pages with OCR…
+            Svc->>OAI: Page images → gpt-5.6-luna (in parallel)
+            OAI-->>Svc: Page text (merged in page order)
+        end
+        Svc->>Svc: Truncate to input limit
         Svc->>DS: One JSON call: title, summary, key points, answer
         DS-->>Svc: JSON
         Svc->>WA: 📄 Title · ❓ Answer · 💡 Summary · 📌 Key points
@@ -200,6 +231,10 @@ sequenceDiagram
   - The transcript goes out before any analysis starts.
   - All analysis happens in **one** DeepSeek call that returns JSON.
   - DeepSeek's thinking mode is **disabled**, since it's slower and burns output tokens on hidden reasoning.
+- **OCR only when needed:**
+  - A PDF page with fewer than 25 characters of extractable text is treated as scanned.
+  - Only those pages are rendered (`pypdfium2`, longest side 1600 px) and sent to the vision model, 5 at a time.
+  - Pages that already have text are never OCR'd, so normal PDFs cost nothing extra.
 - **Audio length** is read from the file header (`mutagen`). If that fails, it's estimated from the transcript at about 2.5 words per second.
 - **The bot is a separate number.** You message it like any contact. Never register your personal number as the bot, because it would stop working in the WhatsApp app.
 - **Replies go out from the number that received the message**, taken from the webhook payload. A mistyped `WHATSAPP_PHONE_NUMBER_ID` can't break them.
@@ -217,6 +252,7 @@ Each task has its own output budget. Thinking is off, so the whole budget goes t
 | Voice translation | **≈ 1.5 × transcript tokens + 100**, capped at **4,000** | `TRANSLATION_MAX_TOKENS` |
 | JSON overhead (voice) | **+50** tokens | — |
 | Document title + summary + key points + answer | **1,500** tokens | `DOC_MAX_OUTPUT_TOKENS` |
+| OCR, per page | **2,000** tokens (a dense A4 page is ~800–1,500) | `OCR_MAX_TOKENS_PER_PAGE` |
 
 And on the input side:
 
@@ -225,6 +261,8 @@ And on the input side:
 | Document text sent to the model | **150,000 chars** (≈ 40k tokens); longer documents are truncated | `DOC_MAX_INPUT_CHARS` |
 | Document file size | **20 MB** | `DOC_MAX_BYTES` |
 | Audio/video file size | **25 MB** (OpenAI's upload limit) | `STT_MAX_BYTES` |
+| Scanned pages OCR'd per document | **20** | `OCR_MAX_PAGES` |
+| OCR image size | **1600 px** longest side (≈ 190 dpi on A4) | `OCR_IMAGE_MAX_SIDE` |
 
 Examples: a 14 s note gets `50 + 150 = 200` tokens. A 95 s note with translation, whose transcript is about 1,200 characters, gets `50 + 150 + 350 + (400 × 1.5 + 100) = 1,250` tokens.
 
@@ -369,6 +407,17 @@ All settings are environment variables: Railway **Variables**, or a local `.env`
 | `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | For a proxy or a compatible provider |
 | `WHATSAPP_API_VERSION` | `v23.0` | Meta Graph API version |
 
+### OCR
+
+| Variable | Default | Description |
+|---|---|---|
+| `OCR_ENABLED` | `true` | OCR scanned PDF pages |
+| `OCR_MODEL` | `gpt-5.6-luna` | Any OpenAI vision model; uses `OPENAI_API_KEY` |
+| `OCR_MAX_PAGES` | `20` | Maximum scanned pages OCR'd per document |
+| `OCR_CONCURRENCY` | `5` | Pages processed in parallel |
+| `OCR_MAX_TOKENS_PER_PAGE` | `2000` | Output cap per page |
+| `OCR_IMAGE_MAX_SIDE` | `1600` | Rendered page size in px; raise it for tiny print |
+
 ### Limits & budgets
 
 See [Token budgets](#-token-budgets) for how these combine.
@@ -391,6 +440,8 @@ See [Token budgets](#-token-budgets) for how these combine.
 | `PRICE_LLM_INPUT_PER_M` | `0.30` | DeepSeek Flash input (cache miss), per 1M tokens, peak rate |
 | `PRICE_LLM_CACHED_INPUT_PER_M` | `0.006` | DeepSeek Flash input (cache hit), peak rate |
 | `PRICE_LLM_OUTPUT_PER_M` | `1.20` | DeepSeek Flash output, peak rate |
+| `PRICE_OCR_INPUT_PER_M` | `0.20` | gpt-5.6-luna input, per 1M tokens |
+| `PRICE_OCR_OUTPUT_PER_M` | `1.20` | gpt-5.6-luna output, per 1M tokens |
 
 These defaults are peak-hour rates, so estimates err on the high side, since DeepSeek halves prices off-peak. Update them from the providers' pricing pages.
 
@@ -414,7 +465,8 @@ Open the **Railway logs** (service → *Deployments* → *View Logs*), send the 
 | `unparseable analysis … finish_reason=length` | Output budget too small | Raise the matching `*_MAX_TOKENS`; keep `SUMMARY_THINKING=false` |
 | `analysis failed` + `401` / `402` | DeepSeek key wrong / no balance | Fix the key or top up |
 | `failed to process` + OpenAI error | OpenAI key or credit, or an unsupported audio format | Check the key; convert the audio to mp3 or m4a |
-| "couldn't find any text" for a PDF | Scanned PDF (images of pages) | OCR isn't supported yet ([roadmap](#-roadmap)) |
+| "couldn't read any text from it, even with OCR" | Blank or unreadable scan | Try a clearer scan, or raise `OCR_IMAGE_MAX_SIDE` |
+| `OCR failed for a page` + `model_not_found` | `OCR_MODEL` isn't available to your OpenAI account | Set `OCR_MODEL` to a vision model you can use |
 | `history disabled: can't open …` | `DB_PATH` isn't writable | Attach a volume at `/app/data`, or set `DB_PATH` empty |
 | `/search` history disappears after a deploy | No volume | [Step 2.4](#2-deploy-on-railway) |
 
@@ -459,8 +511,8 @@ docker run --env-file .env -p 8000:8000 -v "$PWD/data:/app/data" wa-transcriber
 ├── app/
 │   ├── main.py        # FastAPI app: webhook verify/receive, allow-list, dedupe, routing by message type
 │   ├── pipeline.py    # Audio (two-stage reply) and document flows, reply formatting, cost/latency line
-│   ├── ai.py          # OpenAI STT + DeepSeek JSON analysis, per-task token budgets, cost from usage
-│   ├── documents.py   # Text extraction: PDF (pypdf), Word (python-docx), plain text
+│   ├── ai.py          # OpenAI STT + OCR, DeepSeek JSON analysis, per-task token budgets, cost from usage
+│   ├── documents.py   # Text extraction: PDF (pypdf), Word (python-docx), plain text; scanned-page detection and rendering (pypdfium2)
 │   ├── commands.py    # /help /lang /vocab /search /stats
 │   ├── store.py       # SQLite history + FTS5 search + per-user preferences
 │   ├── whatsapp.py    # Graph API: download (with size check), send (auto-split), signature check
@@ -486,7 +538,7 @@ docker run --env-file .env -p 8000:8000 -v "$PWD/data:/app/data" wa-transcriber
 - **Webhook signatures are checked** against `WHATSAPP_APP_SECRET` (`X-Hub-Signature-256`).
 - **An allow-list protects your credits.** Strangers get no response.
 - **Data flow:**
-  - **Audio** goes to OpenAI.
+  - **Audio** and **scanned page images** go to OpenAI.
   - **Transcripts and document text** go to DeepSeek, under each provider's data policy.
   - With `DB_PATH` set, transcripts, document text (up to the input limit) and summaries are stored in SQLite on your Railway volume. `/search` only returns the requesting user's own history.
   - Set `DB_PATH` empty to store nothing.
@@ -499,6 +551,7 @@ docker run --env-file .env -p 8000:8000 -v "$PWD/data:/app/data" wa-transcriber
 |---|---|
 | WhatsApp Cloud API | Replies inside the 24 h customer-service window are free under Meta's current pricing |
 | OpenAI `gpt-4o-mini-transcribe` | ~$0.003 per audio minute |
+| OpenAI `gpt-5.6-luna` (OCR) | ~$0.20 per 1M input / $1.20 per 1M output tokens: roughly **$0.001–0.002 per scanned page** |
 | DeepSeek Flash | ~$0.15–0.30 per 1M input tokens and ~$0.60–1.20 per 1M output tokens (off-peak / peak) |
 | Railway | Trial credit, then the Hobby plan |
 
@@ -517,10 +570,11 @@ In practice, a 1-minute voice note costs about **$0.004** and a 20-page PDF abou
 - [x] Audio files, videos, PDF, Word and text documents, with caption questions
 - [x] Per-message cost, `/stats`
 - [x] Searchable history (`/search`)
+- [x] OCR for scanned PDFs
 
 **Next ideas**
 
-- [ ] **OCR / images:** read scanned PDFs and photos of documents or receipts with a vision model
+- [ ] **Images:** photos of documents, receipts and whiteboards, reusing the OCR pipeline
 - [ ] **More formats:** Excel (`.xlsx`), PowerPoint (`.pptx`), `.doc`
 - [ ] **Very long documents:** map-reduce summarisation instead of truncation
 - [ ] **Very long audio:** split files over 25 MB into chunks before transcription
