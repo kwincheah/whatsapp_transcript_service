@@ -8,6 +8,7 @@
   <img src="https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI">
   <img src="https://img.shields.io/badge/WhatsApp-Cloud%20API-25D366?style=flat-square&logo=whatsapp&logoColor=white" alt="WhatsApp Cloud API">
   <img src="https://img.shields.io/badge/deploy-Railway-0B0D0E?style=flat-square&logo=railway&logoColor=white" alt="Deploy on Railway">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT License"></a>
 </p>
 
 <p align="center">
@@ -196,6 +197,10 @@ uvicorn app.main:app --reload --port 8000
 - [ ] 📊 **Excel & PowerPoint** support
 - [ ] 📚 **Very long documents & audio**: section-by-section summaries and chunked transcription
 - [ ] 🗑️ **Retention**: auto-delete old history, plus `/forget`
+
+## 📄 License
+
+[MIT](LICENSE) © 2026 Cheah Ken Win
 
 ---
 
