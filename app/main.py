@@ -17,7 +17,7 @@ from app.whatsapp import MediaTooLarge, WhatsApp, valid_signature
 log = logging.getLogger("transcriber")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-HINT = "Send or forward me a voice note, audio/video file, or a PDF, Word or text file. Send /help for more."
+HINT = "Send or forward me a voice note, audio/video file, or a PDF, Word or text file. Ask the web with /search your question. Send /help for more."
 UNSUPPORTED = {
     "image": "📷 Images aren't supported yet. Send a PDF, Word or text file, or a voice note.",
     "sticker": HINT,
@@ -138,7 +138,7 @@ async def _dispatch(app: FastAPI, msg: dict, sender: str, msg_id: str, mtype: st
 
     if mtype == "text":
         body = msg.get("text", {}).get("body", "").strip()
-        await send(handle_command(body, sender, settings, store) if body.startswith("/") else HINT)
+        await send(await handle_command(body, sender, settings, store, ai, msg_id) if body.startswith("/") else HINT)
         return
     if mtype in UNSUPPORTED or mtype not in ("audio", "video", "document"):
         await send(UNSUPPORTED.get(mtype, HINT))

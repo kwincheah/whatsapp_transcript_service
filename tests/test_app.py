@@ -153,3 +153,37 @@ def test_signature():
     assert valid_signature("secret", body, sig)
     assert not valid_signature("secret", body, "sha256=deadbeef")
     assert not valid_signature("secret", body, None)
+
+
+async def test_web_search_api_parsing(monkeypatch):
+    from types import SimpleNamespace as NS
+
+    ai = AI(make_settings(web_search_country="my"))
+    seen = {}
+    resp = NS(
+        output=[
+            NS(type="web_search_call"),
+            NS(type="message", content=[NS(annotations=[
+                NS(type="url_citation", url="https://bnm.gov.my/opr?utm_source=openai", title="BNM"),
+                NS(type="url_citation", url="https://bnm.gov.my/opr", title="dup"),
+                NS(type="file_citation"),
+            ])]),
+        ],
+        output_text="**OPR** is 3.00% ([bnm.gov.my](https://bnm.gov.my/opr?utm_source=openai)).",
+        usage=NS(input_tokens=10_000, output_tokens=300),
+    )
+
+    async def fake_create(**kw):
+        seen.update(kw)
+        return resp
+
+    monkeypatch.setattr(ai.openai.responses, "create", fake_create)
+    a = await ai.web_search("OPR?", "English")
+    assert a.text == "*OPR* is 3.00%."
+    assert a.sources == [("BNM", "https://bnm.gov.my/opr")]
+    assert a.searches == 1
+    assert a.cost == pytest.approx(0.01 + (10_000 * 0.20 + 300 * 1.20) / 1e6)
+    assert seen["tools"] == [{"type": "web_search", "search_context_size": "low",
+                              "user_location": {"type": "approximate", "country": "MY"}}]
+    assert seen["reasoning"] == {"effort": "low"} and seen["max_output_tokens"] == 1500
+    assert "Answer in English." in seen["instructions"]

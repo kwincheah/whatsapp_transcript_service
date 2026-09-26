@@ -55,6 +55,14 @@ class Settings(BaseSettings):
     ocr_max_tokens_per_page: int = 2000  # a dense A4 page is ~800-1500 tokens of text
     ocr_image_max_side: int = 1600  # px; larger = better for tiny print, more input tokens
 
+    # Web search via /search (OpenAI Responses API web_search tool, same OPENAI_API_KEY)
+    web_search_enabled: bool = True
+    web_search_model: str = "gpt-5.6-luna"
+    web_search_reasoning: str = "low"  # the web_search tool needs some reasoning; low keeps it fast
+    web_search_context_size: str = "low"  # low | medium | high: how much page content the search pulls in
+    web_search_max_output_tokens: int = 1500  # includes reasoning; the answer itself is ~120 words
+    web_search_country: str = ""  # ISO code (e.g. MY) to bias results to a country
+
     # History / stats (SQLite). On Railway, mount a volume at /app/data to keep it across deploys.
     db_path: str = "data/bot.db"
 
@@ -65,6 +73,9 @@ class Settings(BaseSettings):
     price_llm_output_per_m: float = 1.20
     price_ocr_input_per_m: float = 0.20
     price_ocr_output_per_m: float = 1.20
+    price_web_search_per_call: float = 0.01
+    price_web_input_per_m: float = 0.20
+    price_web_output_per_m: float = 1.20
 
     @property
     def allowed_sender_set(self) -> set[str]:

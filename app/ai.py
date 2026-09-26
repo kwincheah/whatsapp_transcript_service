@@ -42,6 +42,38 @@ OCR_PROMPT = (
 )
 
 
+WEB_INSTRUCTIONS = (
+    "Search the web and answer the user's question for a WhatsApp chat. "
+    "Be accurate and current; include key numbers and dates. Maximum about 120 words, plain sentences or short "
+    "bullets starting with '• '. No tables, no headings, no markdown links (sources are listed separately). {lang}"
+)
+
+
+@dataclass
+class WebAnswer:
+    text: str
+    sources: list[tuple[str, str]]  # (title, url)
+    model: str
+    seconds: float
+    cost: float
+    searches: int
+
+
+def clean_url(url: str) -> str:
+    # OpenAI tags citation links with utm_source=openai.
+    url = re.sub(r"([?&])utm_source=openai(&|$)", lambda m: m.group(1) if m.group(2) else "", url)
+    return url.rstrip("?&")
+
+
+def whatsapp_text(text: str) -> str:
+    """Markdown → WhatsApp formatting: drop inline citation links, keep link text, **bold** → *bold*."""
+    text = re.sub(r"\s*\(\[[^\]]+\]\([^)]+\)\)", "", text)
+    text = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r"\1", text)
+    text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", text)
+    text = re.sub(r"^#+\s*", "", text, flags=re.M)
+    return text.strip()
+
+
 def estimate_tokens(text: str) -> int:
     # Conservative for mixed-language text (English ~4 chars/token, CJK ~1-2).
     return len(text) // 3 + 1
@@ -127,6 +159,45 @@ class AI:
 
         texts = await asyncio.gather(*(one(img) for img in images))
         return list(texts), Timed("", self.s.ocr_model, time.perf_counter() - t0, cost)
+
+    async def web_search(self, question: str, lang: str | None) -> WebAnswer:
+        t0 = time.perf_counter()
+        tool = {"type": "web_search", "search_context_size": self.s.web_search_context_size}
+        if self.s.web_search_country:
+            tool["user_location"] = {"type": "approximate", "country": self.s.web_search_country.upper()}
+        resp = await self.openai.responses.create(
+            model=self.s.web_search_model,
+            instructions=WEB_INSTRUCTIONS.format(
+                lang=f"Answer in {lang}." if lang else "Answer in the language of the question."
+            ),
+            input=question,
+            tools=[tool],
+            reasoning={"effort": self.s.web_search_reasoning},
+            max_output_tokens=self.s.web_search_max_output_tokens,
+        )
+        sources: dict[str, str] = {}
+        searches = 0
+        for item in resp.output or []:
+            if item.type == "web_search_call":
+                searches += 1
+            elif item.type == "message":
+                for part in item.content or []:
+                    for ann in getattr(part, "annotations", None) or []:
+                        if getattr(ann, "type", "") == "url_citation":
+                            sources.setdefault(clean_url(ann.url), ann.title or ann.url)
+        u = resp.usage
+        cost = searches * self.s.price_web_search_per_call + (
+            (getattr(u, "input_tokens", 0) or 0) * self.s.price_web_input_per_m
+            + (getattr(u, "output_tokens", 0) or 0) * self.s.price_web_output_per_m
+        ) / 1_000_000
+        return WebAnswer(
+            whatsapp_text(resp.output_text or ""),
+            [(t, url) for url, t in sources.items()][:5],
+            self.s.web_search_model,
+            time.perf_counter() - t0,
+            cost,
+            searches,
+        )
 
     async def _json_chat(self, system: str, user: str, max_tokens: int) -> tuple[dict | None, Analysis]:
         t0 = time.perf_counter()

@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS items (
     wamid TEXT,
     sender TEXT NOT NULL,
     ts REAL NOT NULL,
-    kind TEXT NOT NULL,          -- voice | video | audio_file | document
+    kind TEXT NOT NULL,          -- voice | video | audio_file | document | web
     title TEXT,
     audio_seconds REAL,
     content TEXT,
@@ -84,9 +84,10 @@ class Store:
     def stats(self, sender: str, since: float) -> dict:
         r = self.db.execute(
             "SELECT COUNT(*) n,"
-            " SUM(kind != 'document') voice_n, SUM(kind = 'document') doc_n,"
+            " SUM(kind IN ('voice', 'video', 'audio_file')) voice_n, SUM(kind = 'document') doc_n,"
+            " SUM(kind = 'web') web_n,"
             " COALESCE(SUM(audio_seconds), 0) audio_s, COALESCE(SUM(cost), 0) cost,"
-            " AVG(CASE WHEN kind != 'document' THEN latency END) voice_lat,"
+            " AVG(CASE WHEN kind IN ('voice', 'video', 'audio_file') THEN latency END) voice_lat,"
             " AVG(CASE WHEN kind = 'document' THEN latency END) doc_lat"
             " FROM items WHERE sender = ? AND ts >= ?",
             (sender, since),

@@ -3,7 +3,7 @@
 # 🎙️ WhatsApp Voice & Document Assistant
 
 **Forward a voice note, video or document to your bot.**
-**Get a transcript, summary, key points and translation back on WhatsApp, with the latency and cost of every reply.**
+**Get a transcript, summary, key points and translation back on WhatsApp, or ask the web with `/search`, with the latency and cost of every reply.**
 
 ![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
@@ -49,7 +49,8 @@
 | 🔍 **OCR for scanned PDFs** | Pages without a text layer (scans, phone photos saved as PDF, handwriting) are read by a vision model. Mixed PDFs only OCR the pages that need it |
 | 🔤 **Custom vocabulary** | `/vocab add Kwin, Petronas` helps the transcriber spell names and jargon correctly |
 | ⏱️ **Latency, model & cost** | Every reply shows each step's model and time, the end-to-end total, and the **estimated cost** |
-| 🔎 **History** | `/search` past transcripts and documents; `/stats` shows usage, average latency and spend |
+| 🌍 **Web search** | `/search latest OPR rate Malaysia` returns a short, current answer with numbered source links |
+| 🗂️ **History** | `/find` past transcripts, documents and searches; `/stats` shows usage, average latency and spend |
 | 🔒 **Private by default** | Sender allow-list, webhook signature checks, and history kept separate per user |
 | 🛡️ **Resilient** | De-duplicated retries, a failed analysis never hides the transcript, long replies are split automatically, and oversized files are rejected before downloading |
 
@@ -147,6 +148,21 @@ Two-year tenancy from 1 Nov 2026 at RM 2,300/month, with a two-month deposit.
 ⏱ Extract 0.08s · OCR gpt-5.6-luna 4.80s · Analysis deepseek-v4-flash 2.30s · Total 7.61s · 5.1k tokens in · $0.0093
 ```
 
+### 🌍 Web search: `/search latest OPR rate Malaysia`
+
+```text
+🔎 latest OPR rate Malaysia
+Bank Negara Malaysia kept the Overnight Policy Rate at *2.75%* at its September 2026 meeting, citing stable inflation and steady growth. The next MPC meeting is on 6 Nov 2026.
+
+Sources
+1. Monetary Policy Statement – Bank Negara Malaysia
+https://www.bnm.gov.my/-/monetary-policy-statement-...
+2. BNM holds OPR at 2.75% – The Edge Malaysia
+https://theedgemalaysia.com/...
+
+⏱ Web search gpt-5.6-luna 4.12s · $0.0131
+```
+
 > [!NOTE]
 > - **Total** is end to end: download, extraction or transcription, then analysis. Costs are **estimates** from token usage and your configured prices.
 > - Replies **quote** your original message, so it's clear which reply belongs to which file.
@@ -178,10 +194,11 @@ Send these as normal WhatsApp messages to the bot:
 | `/lang English` | Translates voice notes into English (any language name works) and writes document summaries in it. `/lang off` stops it, and `/lang` shows the current setting |
 | `/vocab add Kwin, Petronas, KLCC` | Adds words for the transcriber to spell correctly (up to 100 per user) |
 | `/vocab list` · `/vocab clear` | Shows or clears your vocabulary |
-| `/search vendor quote` | Searches your past transcripts and documents; all words must match |
+| `/search latest OPR rate Malaysia` | **Web search:** a short, current answer (about 120 words) with up to 5 source links. It uses your `/lang` language if set |
+| `/find vendor quote` | Searches **your history**: past transcripts, documents and web searches. All words must match |
 | `/stats` | Shows counts, audio minutes, average latency and estimated cost for the last 30 days and all time |
 
-Commands that use history need `DB_PATH` enabled (the default). On Railway, add a **volume** so history survives redeploys ([step 2.4](#2-deploy-on-railway)).
+`/find`, `/lang`, `/vocab` and `/stats` need `DB_PATH` enabled (the default); `/search` works without it. On Railway, add a **volume** so history survives redeploys ([step 2.4](#2-deploy-on-railway)).
 
 ---
 
@@ -222,6 +239,7 @@ sequenceDiagram
         Svc->>WA: 📄 Title · ❓ Answer · 💡 Summary · 📌 Key points
     end
     Svc->>Svc: Save to history (SQLite + FTS5)
+    Note over You,DS: /search question → OpenAI Responses API + web_search tool → answer + sources
     WA->>You: Replies (quoting your message)
 ```
 
@@ -253,6 +271,7 @@ Each task has its own output budget. Thinking is off, so the whole budget goes t
 | JSON overhead (voice) | **+50** tokens | — |
 | Document title + summary + key points + answer | **1,500** tokens | `DOC_MAX_OUTPUT_TOKENS` |
 | OCR, per page | **2,000** tokens (a dense A4 page is ~800–1,500) | `OCR_MAX_TOKENS_PER_PAGE` |
+| Web search answer | **1,500** tokens, including light reasoning; the answer itself is ~120 words | `WEB_SEARCH_MAX_OUTPUT_TOKENS` |
 
 And on the input side:
 
@@ -280,7 +299,7 @@ railway variables --set "WHATSAPP_TOKEN=EAA..." \
                   --set "ALLOWED_SENDERS=60123456789" \
                   --set "OPENAI_API_KEY=sk-..." \
                   --set "DEEPSEEK_API_KEY=sk-..."
-# 3. Add a volume mounted at /app/data (keeps /search and /stats history)
+# 3. Add a volume mounted at /app/data (keeps /find and /stats history)
 # 4. Meta webhook → https://<your-domain>/webhook, subscribe to "messages"
 # 5. Connect the app to your WhatsApp Business Account
 curl -X POST "https://graph.facebook.com/v23.0/<WABA_ID>/subscribed_apps" \
@@ -316,7 +335,7 @@ Then send `/help` to the bot.
    railway variables --kv                             # verify
    ```
 3. **Create a public URL.** Click the **service box**, then open **Settings → Networking → Generate Domain**. Use the *service's* Settings, not the project's.
-4. **Add a volume for history.** Right-click the service → **Attach volume** (or ⌘K → *volume*), with mount path **`/app/data`**. Without it, `/search` and `/stats` reset on every deploy.
+4. **Add a volume for history.** Right-click the service → **Attach volume** (or ⌘K → *volume*), with mount path **`/app/data`**. Without it, `/find` and `/stats` history resets on every deploy.
 5. Check that `https://<your-domain>/health` returns `{"ok":true}`, and check the startup log:
    ```text
    config: phone_number_id=1329315093600329 token_len=212 app_secret_len=32 allowed=['60123456789']
@@ -395,7 +414,7 @@ All settings are environment variables: Railway **Variables**, or a local `.env`
 | `KEY_POINTS_MIN_SECONDS` | `60` | Add key points for audio longer than this |
 | `TRANSLATE_TO` | *(empty: off)* | Default translation language, e.g. `English`; users override it with `/lang` |
 | `STT_VOCAB` | *(empty)* | Comma-separated words for every user, added to each user's `/vocab` |
-| `DB_PATH` | `data/bot.db` | SQLite history for `/search` and `/stats`; set it empty to disable |
+| `DB_PATH` | `data/bot.db` | SQLite history for `/find` and `/stats`; set it empty to disable |
 
 ### Models
 
@@ -417,6 +436,17 @@ All settings are environment variables: Railway **Variables**, or a local `.env`
 | `OCR_CONCURRENCY` | `5` | Pages processed in parallel |
 | `OCR_MAX_TOKENS_PER_PAGE` | `2000` | Output cap per page |
 | `OCR_IMAGE_MAX_SIDE` | `1600` | Rendered page size in px; raise it for tiny print |
+
+### Web search
+
+| Variable | Default | Description |
+|---|---|---|
+| `WEB_SEARCH_ENABLED` | `true` | Enables `/search` |
+| `WEB_SEARCH_MODEL` | `gpt-5.6-luna` | OpenAI model used with the `web_search` tool |
+| `WEB_SEARCH_REASONING` | `low` | Reasoning effort. The tool needs some reasoning; `low` is fast |
+| `WEB_SEARCH_CONTEXT_SIZE` | `low` | How much page content each search pulls in (`low`, `medium` or `high`). Higher is more thorough, slower and pricier |
+| `WEB_SEARCH_MAX_OUTPUT_TOKENS` | `1500` | Output cap, including reasoning |
+| `WEB_SEARCH_COUNTRY` | *(empty)* | ISO country code, e.g. `MY`, to prefer local results |
 
 ### Limits & budgets
 
@@ -442,6 +472,8 @@ See [Token budgets](#-token-budgets) for how these combine.
 | `PRICE_LLM_OUTPUT_PER_M` | `1.20` | DeepSeek Flash output, peak rate |
 | `PRICE_OCR_INPUT_PER_M` | `0.20` | gpt-5.6-luna input, per 1M tokens |
 | `PRICE_OCR_OUTPUT_PER_M` | `1.20` | gpt-5.6-luna output, per 1M tokens |
+| `PRICE_WEB_SEARCH_PER_CALL` | `0.01` | OpenAI web_search tool, per search ($10 per 1,000) |
+| `PRICE_WEB_INPUT_PER_M` / `PRICE_WEB_OUTPUT_PER_M` | `0.20` / `1.20` | Tokens for the web search model |
 
 These defaults are peak-hour rates, so estimates err on the high side, since DeepSeek halves prices off-peak. Update them from the providers' pricing pages.
 
@@ -466,9 +498,11 @@ Open the **Railway logs** (service → *Deployments* → *View Logs*), send the 
 | `analysis failed` + `401` / `402` | DeepSeek key wrong / no balance | Fix the key or top up |
 | `failed to process` + OpenAI error | OpenAI key or credit, or an unsupported audio format | Check the key; convert the audio to mp3 or m4a |
 | "couldn't read any text from it, even with OCR" | Blank or unreadable scan | Try a clearer scan, or raise `OCR_IMAGE_MAX_SIDE` |
+| `web search failed` in logs | Model has no web-search access, or a quota/key problem | Set `WEB_SEARCH_MODEL` to a model your account can use with `web_search`; if the error mentions reasoning, set `WEB_SEARCH_REASONING=medium` |
+| `/search` finds nothing in my old notes | `/search` is **web** search | Use `/find` for your history |
 | `OCR failed for a page` + `model_not_found` | `OCR_MODEL` isn't available to your OpenAI account | Set `OCR_MODEL` to a vision model you can use |
 | `history disabled: can't open …` | `DB_PATH` isn't writable | Attach a volume at `/app/data`, or set `DB_PATH` empty |
-| `/search` history disappears after a deploy | No volume | [Step 2.4](#2-deploy-on-railway) |
+| `/find` history disappears after a deploy | No volume | [Step 2.4](#2-deploy-on-railway) |
 
 > [!TIP]
 > WhatsApp only allows free-form replies within 24 h of your last message to the bot. Sending anything to it opens that window, so replies always work.
@@ -511,9 +545,9 @@ docker run --env-file .env -p 8000:8000 -v "$PWD/data:/app/data" wa-transcriber
 ├── app/
 │   ├── main.py        # FastAPI app: webhook verify/receive, allow-list, dedupe, routing by message type
 │   ├── pipeline.py    # Audio (two-stage reply) and document flows, reply formatting, cost/latency line
-│   ├── ai.py          # OpenAI STT + OCR, DeepSeek JSON analysis, per-task token budgets, cost from usage
+│   ├── ai.py          # OpenAI STT + OCR + web search, DeepSeek JSON analysis, per-task token budgets, cost from usage
 │   ├── documents.py   # Text extraction: PDF (pypdf), Word (python-docx), plain text; scanned-page detection and rendering (pypdfium2)
-│   ├── commands.py    # /help /lang /vocab /search /stats
+│   ├── commands.py    # /help /search (web) /find (history) /lang /vocab /stats
 │   ├── store.py       # SQLite history + FTS5 search + per-user preferences
 │   ├── whatsapp.py    # Graph API: download (with size check), send (auto-split), signature check
 │   ├── audio.py       # Audio duration from the file header (mutagen)
@@ -538,9 +572,9 @@ docker run --env-file .env -p 8000:8000 -v "$PWD/data:/app/data" wa-transcriber
 - **Webhook signatures are checked** against `WHATSAPP_APP_SECRET` (`X-Hub-Signature-256`).
 - **An allow-list protects your credits.** Strangers get no response.
 - **Data flow:**
-  - **Audio** and **scanned page images** go to OpenAI.
+  - **Audio**, **scanned page images** and **`/search` questions** go to OpenAI.
   - **Transcripts and document text** go to DeepSeek, under each provider's data policy.
-  - With `DB_PATH` set, transcripts, document text (up to the input limit) and summaries are stored in SQLite on your Railway volume. `/search` only returns the requesting user's own history.
+  - With `DB_PATH` set, transcripts, document text (up to the input limit) and summaries are stored in SQLite on your Railway volume. `/find` only returns the requesting user's own history.
   - Set `DB_PATH` empty to store nothing.
 
 ---
@@ -551,6 +585,7 @@ docker run --env-file .env -p 8000:8000 -v "$PWD/data:/app/data" wa-transcriber
 |---|---|
 | WhatsApp Cloud API | Replies inside the 24 h customer-service window are free under Meta's current pricing |
 | OpenAI `gpt-4o-mini-transcribe` | ~$0.003 per audio minute |
+| OpenAI web search (`/search`) | $0.01 per search + tokens: roughly **$0.01–0.02 per question** |
 | OpenAI `gpt-5.6-luna` (OCR) | ~$0.20 per 1M input / $1.20 per 1M output tokens: roughly **$0.001–0.002 per scanned page** |
 | DeepSeek Flash | ~$0.15–0.30 per 1M input tokens and ~$0.60–1.20 per 1M output tokens (off-peak / peak) |
 | Railway | Trial credit, then the Hobby plan |
@@ -569,8 +604,9 @@ In practice, a 1-minute voice note costs about **$0.004** and a 20-page PDF abou
 - [x] Key points for long notes
 - [x] Audio files, videos, PDF, Word and text documents, with caption questions
 - [x] Per-message cost, `/stats`
-- [x] Searchable history (`/search`)
+- [x] Searchable history (`/find`)
 - [x] OCR for scanned PDFs
+- [x] Web search (`/search`), with history search moved to `/find`
 
 **Next ideas**
 
