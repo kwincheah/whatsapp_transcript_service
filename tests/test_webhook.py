@@ -33,16 +33,16 @@ def test_verify(client):
 def test_voice_message_is_processed_once(client, monkeypatch):
     calls = []
 
-    async def fake_handle(app, msg):
-        calls.append(msg["id"])
+    async def fake_handle(app, msg, phone_number_id=None):
+        calls.append((msg["id"], phone_number_id))
 
     monkeypatch.setattr(main, "handle_message", fake_handle)
-    payload = {"entry": [{"changes": [{"value": {"messages": [
+    payload = {"entry": [{"changes": [{"value": {"metadata": {"phone_number_id": "1329315093600329"}, "messages": [
         {"id": "wamid.1", "from": "60111", "type": "audio", "audio": {"id": "m1"}}
     ]}}]}]}
     assert client.post("/webhook", json=payload).status_code == 200
     assert client.post("/webhook", json=payload).status_code == 200  # Meta retry
-    assert calls == ["wamid.1"]
+    assert calls == [("wamid.1", "1329315093600329")]
 
 
 async def test_non_allowed_sender_ignored(client):

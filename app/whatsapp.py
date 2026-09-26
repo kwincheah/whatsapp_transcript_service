@@ -33,7 +33,9 @@ class WhatsApp:
         _check(media)
         return media.content, info.get("mime_type", "audio/ogg")
 
-    async def send_text(self, to: str, body: str, reply_to: str | None = None) -> None:
+    async def send_text(
+        self, to: str, body: str, reply_to: str | None = None, phone_number_id: str | None = None
+    ) -> None:
         payload = {
             "messaging_product": "whatsapp",
             "to": to,
@@ -43,7 +45,9 @@ class WhatsApp:
         if reply_to:
             payload["context"] = {"message_id": reply_to}
         r = await self.http.post(
-            f"{self.base}/{self.s.whatsapp_phone_number_id}/messages", headers=self.auth, json=payload
+            f"{self.base}/{phone_number_id or self.s.whatsapp_phone_number_id}/messages",
+            headers=self.auth,
+            json=payload,
         )
         _check(r)
 

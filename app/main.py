@@ -77,14 +77,17 @@ async def receive(request: Request, background: BackgroundTasks):
     payload = await request.json()
     for entry in payload.get("entry", []):
         for change in entry.get("changes", []):
-            for msg in change.get("value", {}).get("messages", []):
+            value = change.get("value", {})
+            # The bot number that received the message; reply from the same one.
+            phone_number_id = value.get("metadata", {}).get("phone_number_id")
+            for msg in value.get("messages", []):
                 if _first_time(msg.get("id", "")):
-                    background.add_task(handle_message, request.app, msg)
+                    background.add_task(handle_message, request.app, msg, phone_number_id)
     # Always 200 quickly so Meta doesn't retry; work happens in the background.
     return {"ok": True}
 
 
-async def handle_message(app: FastAPI, msg: dict) -> None:
+async def handle_message(app: FastAPI, msg: dict, phone_number_id: str | None = None) -> None:
     settings, wa, ai = app.state.settings, app.state.wa, app.state.ai
     sender, msg_id = msg.get("from", ""), msg.get("id")
     allowed = settings.allowed_sender_set
@@ -94,7 +97,9 @@ async def handle_message(app: FastAPI, msg: dict) -> None:
 
     if msg.get("type") != "audio":
         try:
-            await wa.send_text(sender, "Forward me a voice message and I'll transcribe it.", msg_id)
+            await wa.send_text(
+                sender, "Forward me a voice message and I'll transcribe it.", msg_id, phone_number_id
+            )
         except Exception:
             log.error("failed to send hint reply for %s", msg_id)
         return
@@ -115,6 +120,6 @@ async def handle_message(app: FastAPI, msg: dict) -> None:
         log.exception("failed to process %s", msg_id)
         reply = "Sorry, I couldn't transcribe that voice message."
     try:
-        await wa.send_text(sender, reply, msg_id)
+        await wa.send_text(sender, reply, msg_id, phone_number_id)
     except Exception:
         log.error("failed to send reply for %s", msg_id)
