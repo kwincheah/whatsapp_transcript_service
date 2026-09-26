@@ -57,3 +57,12 @@ async def test_non_allowed_sender_ignored(client):
     assert sent == []
     await main.handle_message(main.app, {"id": "y", "from": "60111", "type": "text"})
     assert len(sent) == 1
+
+
+async def test_send_failure_is_logged_not_raised(client):
+    class WA:
+        async def send_text(self, *a):
+            raise RuntimeError("401")
+
+    main.app.state.wa = WA()
+    await main.handle_message(main.app, {"id": "z", "from": "60111", "type": "text"})

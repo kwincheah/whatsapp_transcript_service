@@ -31,6 +31,14 @@ def _first_time(message_id: str) -> bool:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    # Lengths only (never values) to catch truncated env vars.
+    log.info(
+        "config: phone_number_id=%s token_len=%d app_secret_len=%d allowed=%s",
+        settings.whatsapp_phone_number_id,
+        len(settings.whatsapp_token),
+        len(settings.whatsapp_app_secret),
+        sorted(settings.allowed_sender_set) or "anyone",
+    )
     async with httpx.AsyncClient(timeout=60) as client:
         app.state.settings = settings
         app.state.wa = WhatsApp(settings, client)
@@ -85,7 +93,10 @@ async def handle_message(app: FastAPI, msg: dict) -> None:
         return
 
     if msg.get("type") != "audio":
-        await wa.send_text(sender, "Forward me a voice message and I'll transcribe it.", msg_id)
+        try:
+            await wa.send_text(sender, "Forward me a voice message and I'll transcribe it.", msg_id)
+        except Exception:
+            log.error("failed to send hint reply for %s", msg_id)
         return
 
     started = time.perf_counter()
@@ -106,4 +117,4 @@ async def handle_message(app: FastAPI, msg: dict) -> None:
     try:
         await wa.send_text(sender, reply, msg_id)
     except Exception:
-        log.exception("failed to send reply for %s", msg_id)
+        log.error("failed to send reply for %s", msg_id)
